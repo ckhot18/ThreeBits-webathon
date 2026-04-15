@@ -1,0 +1,82 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: #f5f3ef;
+  color: #0f172a;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at top, rgba(251, 191, 36, 0.08), transparent 24%),
+    linear-gradient(180deg, #faf7f2 0%, #f5f3ef 42%, #efebe4 100%);
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  cursor: pointer;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+.app-shell {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.map-pin {
+  background: transparent !important;
+  border: none !important;
+}
+
+.map-pin__dot {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.25);
+}
+
+.leaflet-container {
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 18px;
+}
+
+.leaflet-popup-content {
+  margin: 14px;
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #475569 !important;
+}
