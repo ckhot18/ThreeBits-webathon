@@ -2,160 +2,218 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useComplaints } from '../context/ComplaintContext.jsx'
 import { STATUS_META, formatCategory, formatDateTime, normalizeComplaintNumber } from '../lib/complaintUtils.js'
+import { downloadComplaintReportPdf } from '../lib/reportPdf.js'
+
+function StatusBadge({ status }) {
+  const meta = STATUS_META[status]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: `${meta.color}22`, border: `1px solid ${meta.color}55`,
+      color: meta.color, borderRadius: 99, padding: '5px 14px',
+      fontSize: 12, fontWeight: 700, letterSpacing: '0.05em',
+    }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, boxShadow: `0 0 6px ${meta.color}` }} />
+      {meta.label}
+    </span>
+  )
+}
 
 function Track() {
   const { getComplaintByNumber } = useComplaints()
   const [params, setParams] = useSearchParams()
-  const [complaintInput, setComplaintInput] = useState(params.get('complaint') ?? '')
+  const [input, setInput] = useState(params.get('complaint') ?? '')
 
   const complaint = useMemo(
     () => getComplaintByNumber(params.get('complaint') ?? ''),
     [getComplaintByNumber, params],
   )
 
-  function handleSubmit(event) {
-    event.preventDefault()
-    const normalized = normalizeComplaintNumber(complaintInput)
-
+  function handleSubmit(e) {
+    e.preventDefault()
+    const normalized = normalizeComplaintNumber(input)
     if (!normalized) return
-
     setParams({ complaint: normalized })
   }
 
+  const agent = complaint?.assignedAgent ?? null
+
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Track complaint</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Check complaint progress</h1>
-        <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-          Enter the complaint number to view its current status, full details, and proof image once resolved.
-        </p>
+    <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Header */}
+      <div>
+        <div className="section-label" style={{ marginBottom: 6 }}>ShikayatTrack</div>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", color: 'var(--text-primary)' }}>Track Your Complaint</h1>
+        <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--text-secondary)' }}>Enter your complaint ID to see real-time status and assigned agent details.</p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 grid gap-3 sm:grid-cols-[1fr,auto]">
-          <input
-            type="text"
-            value={complaintInput}
-            onChange={(event) => setComplaintInput(event.target.value)}
-            placeholder="Enter complaint number"
-            className="w-full rounded-2xl border border-stone-300 px-4 py-3 outline-none transition focus:border-slate-900"
-          />
-          <button
-            type="submit"
-            className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Fetch complaint
-          </button>
-        </form>
-      </section>
+      {/* Search */}
+      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <input
+          className="input-base"
+          style={{ flex: 1, minWidth: 220 }}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Enter complaint ID (e.g. SKT-2026-1042)"
+        />
+        <button type="submit" className="btn-primary" style={{ flexShrink: 0 }}>
+          Search →
+        </button>
+      </form>
 
-      {!params.get('complaint') ? (
-        <section className="rounded-[32px] border border-dashed border-stone-300 bg-stone-50 p-8 text-slate-500">
-          Enter a complaint number to view the complaint details.
-        </section>
-      ) : null}
+      {/* Empty state */}
+      {!params.get('complaint') && (
+        <div style={{ background: 'var(--bg-card)', border: '2px dashed var(--border)', borderRadius: 20, padding: 40, textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>◎</div>
+          <div style={{ fontSize: 15, color: 'var(--text-secondary)' }}>Enter a complaint ID above to track its progress</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>Example: SKT-2026-1042</div>
+        </div>
+      )}
 
-      {params.get('complaint') && !complaint ? (
-        <section className="rounded-[32px] bg-rose-50 p-8 text-rose-700 shadow-sm">
-          No complaint was found for <strong>{params.get('complaint')}</strong>.
-        </section>
-      ) : null}
+      {/* Not found */}
+      {params.get('complaint') && !complaint && (
+        <div style={{ background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 16, padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--red)' }}>No complaint found for "{params.get('complaint')}"</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Double-check the ID and try again.</div>
+        </div>
+      )}
 
-      {complaint ? (
-        <section className="grid gap-8 lg:grid-cols-[1.05fr,0.95fr]">
-          <div className="space-y-6 rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+      {/* Complaint details */}
+      {complaint && (
+        <div className="fade-up" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Title + status */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
-                  {complaint.complaintNumber}
-                </p>
-                <h2 className="mt-2 text-3xl font-semibold text-slate-900">{complaint.title}</h2>
+                <div className="section-label" style={{ marginBottom: 6 }}>{complaint.complaintNumber}</div>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{complaint.title}</h2>
               </div>
-              <span
-                className="rounded-full px-4 py-2 text-sm font-semibold text-slate-900"
-                style={{ backgroundColor: STATUS_META[complaint.status].color }}
-              >
-                {STATUS_META[complaint.status].label}
-              </span>
+              <StatusBadge status={complaint.status} />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-3xl bg-stone-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Category</p>
-                <p className="mt-2 text-base font-medium text-slate-900">
-                  {formatCategory(complaint.category, complaint.otherCategory)}
-                </p>
-              </div>
-              <div className="rounded-3xl bg-stone-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Reported on</p>
-                <p className="mt-2 text-base font-medium text-slate-900">{formatDateTime(complaint.createdAt)}</p>
-              </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+              {[
+                { label: 'Category', value: formatCategory(complaint.category, complaint.otherCategory) },
+                { label: 'Reported On', value: formatDateTime(complaint.createdAt) },
+                { label: 'Location', value: complaint.locationName },
+                { label: 'Last Updated', value: formatDateTime(complaint.updatedAt) },
+              ].map((item) => (
+                <div key={item.label} style={{ background: 'rgba(56,189,248,0.04)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.value}</div>
+                </div>
+              ))}
             </div>
 
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Description</p>
-              <p className="mt-3 text-base leading-7 text-slate-700">{complaint.description}</p>
+            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-ghost" onClick={() => downloadComplaintReportPdf(complaint)}>
+                Download PDF Report
+              </button>
             </div>
 
-            {complaint.imageUrl ? (
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Citizen image</p>
-                <img
-                  src={complaint.imageUrl}
-                  alt={complaint.title}
-                  className="mt-3 h-72 w-full rounded-[28px] object-cover"
-                />
+            {complaint.imageUrl && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Submitted Photo</div>
+                <img src={complaint.imageUrl} alt={complaint.title} style={{ width: '100%', maxHeight: 280, objectFit: 'cover', borderRadius: 14 }} />
               </div>
-            ) : null}
+            )}
+
+            {complaint.aiSummary && (
+              <div style={{ marginTop: 14, background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 6 }}>🤖 AI Analysis</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{complaint.aiSummary}</div>
+                {complaint.aiSeverity && (
+                  <span style={{ display: 'inline-block', marginTop: 8, fontSize: 11, fontWeight: 700, color: complaint.aiSeverity === 'critical' ? 'var(--red)' : complaint.aiSeverity === 'moderate' ? 'var(--amber)' : 'var(--green)', background: complaint.aiSeverity === 'critical' ? 'var(--red-dim)' : complaint.aiSeverity === 'moderate' ? 'var(--amber-dim)' : 'var(--green-dim)', padding: '3px 10px', borderRadius: 99 }}>
+                    {complaint.aiSeverity.toUpperCase()} SEVERITY
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-6">
-            <div className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Status timeline</p>
-              <div className="mt-5 space-y-4">
-                {complaint.timeline.map((entry) => (
-                  <article key={`${entry.status}-${entry.timestamp}`} className="flex gap-4 rounded-3xl bg-stone-50 p-4">
-                    <span className="mt-2 h-3 w-3 flex-none rounded-full" style={{ backgroundColor: STATUS_META[entry.status].color }} />
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{STATUS_META[entry.status].label}</p>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">{entry.note}</p>
-                      <p className="mt-2 text-xs text-slate-500">{formatDateTime(entry.timestamp)}</p>
-                    </div>
-                  </article>
-                ))}
+          {/* Agent card */}
+          {agent ? (
+            <div className="agent-card">
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 14 }}>👷 Assigned Agent</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
+                  background: 'linear-gradient(135deg, var(--cyan), var(--violet))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 20, fontWeight: 800, color: '#050d1a',
+                }}>
+                  {agent.name.charAt(0)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{agent.name}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{agent.role}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Ward: {agent.ward} · ID: {agent.id}</div>
+                </div>
+                <a href={`tel:${agent.phone}`} className="btn-primary" style={{ flexShrink: 0 }}>
+                  📞 Call Agent
+                </a>
+              </div>
+              <div style={{ marginTop: 14, padding: '10px 14px', background: 'rgba(5,13,26,0.4)', borderRadius: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
+                📱 {agent.phone}
               </div>
             </div>
+          ) : (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Agent Assignment</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Agent will be assigned once the complaint is reviewed by the admin.</div>
+            </div>
+          )}
 
-            <div className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Resolution details</p>
-              {complaint.status === 'resolved' ? (
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-3xl bg-emerald-50 p-4 text-emerald-800">
-                    <p className="text-sm font-medium">Resolved remarks</p>
-                    <p className="mt-2 text-sm leading-6">{complaint.remarks || 'No remarks added.'}</p>
+          {/* Timeline */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 16 }}>Status Timeline</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {complaint.timeline.map((entry, i) => {
+                const meta = STATUS_META[entry.status] ?? STATUS_META.reported
+                const isLast = i === complaint.timeline.length - 1
+                return (
+                  <div key={i} style={{ display: 'flex', gap: 14 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: meta.color, boxShadow: `0 0 10px ${meta.color}`, flexShrink: 0, marginTop: 2 }} />
+                      {!isLast && <div style={{ width: 2, flex: 1, background: 'var(--border)', margin: '4px 0' }} />}
+                    </div>
+                    <div style={{ paddingBottom: isLast ? 0 : 20, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: meta.color }}>{meta.label}</div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.5 }}>{entry.note}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(entry.timestamp)}</div>
+                    </div>
                   </div>
-                  <div className="rounded-3xl bg-stone-50 p-4">
-                    <p className="text-sm font-medium text-slate-900">Description</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {complaint.resolutionDescription || 'No additional resolution description provided.'}
-                    </p>
-                  </div>
-                  {complaint.proofImageUrl ? (
-                    <img
-                      src={complaint.proofImageUrl}
-                      alt="Resolution proof"
-                      className="h-72 w-full rounded-[28px] object-cover"
-                    />
-                  ) : null}
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Resolution */}
+          {complaint.status === 'resolved' && (
+            <div style={{ background: 'linear-gradient(135deg, rgba(52,211,153,0.08), rgba(56,189,248,0.05))', border: '1px solid rgba(52,211,153,0.25)', borderRadius: 20, padding: 24 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--green)', marginBottom: 14 }}>✅ Resolution Details</div>
+              {complaint.remarks && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Remarks</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{complaint.remarks}</div>
                 </div>
-              ) : (
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  Resolution proof and remarks will appear here after the complaint is marked as solved by the admin.
-                </p>
+              )}
+              {complaint.resolutionDescription && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Resolution Description</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{complaint.resolutionDescription}</div>
+                </div>
+              )}
+              {complaint.proofImageUrl && (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Proof Image</div>
+                  <img src={complaint.proofImageUrl} alt="Resolution proof" style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 14 }} />
+                </div>
               )}
             </div>
-          </div>
-        </section>
-      ) : null}
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,282 +1,414 @@
 import { useMemo, useState } from 'react'
 import { useComplaints } from '../context/ComplaintContext.jsx'
-import { STATUS_META, formatCategory, formatDateTime, readFileAsDataUrl } from '../lib/complaintUtils.js'
+import { STATUS_META, formatCategory, formatDateTime, readFileAsDataUrl, buildDepartmentReputation } from '../lib/complaintUtils.js'
+import { AGENTS } from '../lib/agents.js'
+
+const ADMIN_USER = 'admin'
+const ADMIN_PASS = '1234'
 
 const FILTERS = [
-  { key: 'total', label: 'Total complaints raised' },
-  { key: 'underProcess', label: 'Under solving process' },
-  { key: 'notSeen', label: 'Not seen yet' },
-  { key: 'resolved', label: 'Resolved complaints' },
+  { key: 'total', label: 'All Complaints' },
+  { key: 'notSeen', label: 'Awaiting Review' },
+  { key: 'underProcess', label: 'In Progress' },
+  { key: 'resolved', label: 'Resolved' },
 ]
 
 function filterComplaints(key, complaints) {
-  if (key === 'underProcess') {
-    return complaints.filter((item) => item.status === 'assigned' || item.status === 'in_progress')
-  }
-
-  if (key === 'notSeen') {
-    return complaints.filter((item) => item.status === 'reported')
-  }
-
-  if (key === 'resolved') {
-    return complaints.filter((item) => item.status === 'resolved')
-  }
-
+  if (key === 'underProcess') return complaints.filter((c) => c.status === 'assigned' || c.status === 'in_progress')
+  if (key === 'notSeen') return complaints.filter((c) => c.status === 'reported')
+  if (key === 'resolved') return complaints.filter((c) => c.status === 'resolved')
   return complaints
 }
 
-function ComplaintActionForm({ complaint, onSave }) {
-  const [status, setStatus] = useState(
-    complaint.status === 'resolved' ? 'in_progress' : complaint.status,
-  )
-  const [remarks, setRemarks] = useState(complaint.remarks || '')
-  const [resolutionDescription, setResolutionDescription] = useState(
-    complaint.resolutionDescription || '',
-  )
-  const [markResolved, setMarkResolved] = useState(complaint.status === 'resolved')
-  const [proofFile, setProofFile] = useState(null)
-  const [feedback, setFeedback] = useState('')
+function AdminLogin({ onLogin }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-
-    const proofImageUrl = proofFile ? await readFileAsDataUrl(proofFile) : complaint.proofImageUrl
-
-    onSave(complaint.id, {
-      status,
-      remarks,
-      resolutionDescription,
-      markResolved,
-      proofImageUrl,
-    })
-
-    setFeedback('Complaint updated successfully.')
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
+      onLogin()
+    } else {
+      setError('Invalid username or password.')
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Update complaint</p>
-          <h3 className="mt-1 text-2xl font-semibold text-slate-900">Admin action form</h3>
+    <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 400, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 24, padding: 36 }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🔐</div>
+          <div className="section-label" style={{ marginBottom: 6 }}>Admin Panel</div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", color: 'var(--text-primary)' }}>Sign In</h1>
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Access the operations dashboard</p>
         </div>
-        {feedback ? <span className="rounded-full bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{feedback}</span> : null}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Username</span>
+            <input
+              className="input-base"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter username"
+              autoComplete="username"
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Password</span>
+            <input
+              className="input-base"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter password"
+              autoComplete="current-password"
+            />
+          </label>
+
+          {error && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--red)', background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 10, padding: '10px 14px' }}>
+              {error}
+            </p>
+          )}
+
+          <button type="submit" className="btn-primary" style={{ justifyContent: 'center', marginTop: 4 }}>
+            Sign In →
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ActionForm({ complaint, onSave }) {
+  const [status, setStatus] = useState(complaint.status === 'resolved' ? 'in_progress' : complaint.status)
+  const [remarks, setRemarks] = useState(complaint.remarks || '')
+  const [markResolved, setMarkResolved] = useState(complaint.status === 'resolved')
+  const [proofFile, setProofFile] = useState(null)
+  const [selectedAgentId, setSelectedAgentId] = useState(complaint.assignedAgent?.id ?? '')
+  const [feedback, setFeedback] = useState('')
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const proofImageUrl = proofFile ? await readFileAsDataUrl(proofFile) : complaint.proofImageUrl
+    const agent = AGENTS.find((a) => a.id === selectedAgentId) ?? complaint.assignedAgent
+    await onSave(complaint.id, { status, remarks, markResolved, proofImageUrl, assignedAgent: agent })
+    setFeedback('Updated successfully.')
+    setTimeout(() => setFeedback(''), 3000)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Admin Actions</div>
+        {feedback && <span style={{ fontSize: 12, color: 'var(--green)', background: 'var(--green-dim)', padding: '4px 12px', borderRadius: 99 }}>{feedback}</span>}
       </div>
 
-      <div className="mt-6 space-y-5">
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">Status</span>
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            disabled={markResolved}
-            className="w-full rounded-2xl border border-stone-300 px-4 py-3 outline-none transition focus:border-slate-900 disabled:bg-stone-100"
-          >
-            <option value="reported">Reported</option>
-            <option value="assigned">Assigned to official</option>
-            <option value="in_progress">In progress</option>
-          </select>
-        </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Status</span>
+        <select className="input-base" value={status} onChange={(e) => setStatus(e.target.value)} disabled={markResolved}>
+          <option value="reported">Reported</option>
+          <option value="assigned">Assigned</option>
+          <option value="in_progress">In Progress</option>
+        </select>
+      </label>
 
-        <label className="flex items-center gap-3 rounded-2xl bg-stone-50 px-4 py-4 text-sm font-medium text-slate-700">
-          <input
-            type="checkbox"
-            checked={markResolved}
-            onChange={(event) => setMarkResolved(event.target.checked)}
-            className="h-4 w-4"
-          />
-          Mark as solved
-        </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 10, padding: '10px 14px', cursor: 'pointer' }}>
+        <input type="checkbox" checked={markResolved} onChange={(e) => setMarkResolved(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--green)' }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--green)' }}>Mark as Resolved</span>
+      </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">Remarks</span>
-          <textarea
-            rows="3"
-            value={remarks}
-            onChange={(event) => setRemarks(event.target.value)}
-            placeholder="Add remarks for this complaint"
-            className="w-full rounded-2xl border border-stone-300 px-4 py-3 outline-none transition focus:border-slate-900"
-          />
-        </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Assign Agent</span>
+        <select className="input-base" value={selectedAgentId} onChange={(e) => setSelectedAgentId(e.target.value)}>
+          <option value="">— Select Agent —</option>
+          {AGENTS.map((a) => (
+            <option key={a.id} value={a.id}>{a.name} · {a.role} {a.available ? '✓' : '(busy)'}</option>
+          ))}
+        </select>
+      </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">Description if required</span>
-          <textarea
-            rows="4"
-            value={resolutionDescription}
-            onChange={(event) => setResolutionDescription(event.target.value)}
-            placeholder="Optional extra details about the work completed or in progress"
-            className="w-full rounded-2xl border border-stone-300 px-4 py-3 outline-none transition focus:border-slate-900"
-          />
-        </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Remarks</span>
+        <textarea className="input-base" rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Add remarks..." style={{ resize: 'vertical' }} />
+      </label>
 
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-700">Upload proof image</span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => setProofFile(event.target.files?.[0] ?? null)}
-            className="w-full rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-4 text-sm text-slate-500"
-          />
-        </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Upload Proof Image</span>
+        <input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] ?? null)} className="input-base" style={{ padding: '10px 14px', cursor: 'pointer' }} />
+      </label>
 
-        <button
-          type="submit"
-          className="rounded-full bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-        >
-          Save update
-        </button>
-      </div>
+      <button type="submit" className="btn-primary" style={{ justifyContent: 'center' }}>Save Update</button>
     </form>
   )
 }
 
-function Admin() {
+function AdminDashboard({ onLogout }) {
   const { complaints, stats, updateComplaint } = useComplaints()
   const [activeFilter, setActiveFilter] = useState('total')
-  const [selectedComplaintId, setSelectedComplaintId] = useState(complaints[0]?.id ?? '')
+  const [selectedId, setSelectedId] = useState('')
 
-  const filteredComplaints = useMemo(
-    () => filterComplaints(activeFilter, complaints),
-    [activeFilter, complaints],
-  )
+  const filtered = useMemo(() => filterComplaints(activeFilter, complaints), [activeFilter, complaints])
+  const selected = useMemo(() => complaints.find((c) => c.id === selectedId) ?? null, [complaints, selectedId])
+  const departmentScores = useMemo(() => buildDepartmentReputation(complaints), [complaints])
 
-  const selectedComplaint = useMemo(() => {
-    return complaints.find((item) => item.id === selectedComplaintId) ?? filteredComplaints[0] ?? null
-  }, [complaints, filteredComplaints, selectedComplaintId])
+  const agentReport = useMemo(() => {
+    const assignedCountByAgent = complaints.reduce((acc, complaint) => {
+      const agentId = complaint.assignedAgent?.id
+      if (!agentId) return acc
+      const current = acc.get(agentId) ?? { assigned: 0, resolved: 0, active: 0 }
+      current.assigned += 1
+      if (complaint.status === 'resolved') current.resolved += 1
+      else current.active += 1
+      acc.set(agentId, current)
+      return acc
+    }, new Map())
+
+    return AGENTS
+      .map((agent) => {
+        const summary = assignedCountByAgent.get(agent.id) ?? { assigned: 0, resolved: 0, active: 0 }
+        const resolutionRate = summary.assigned ? Math.round((summary.resolved / summary.assigned) * 100) : 0
+        return { ...agent, ...summary, resolutionRate }
+      })
+      .filter((agent) => agent.assigned > 0)
+      .sort((a, b) => b.assigned - a.assigned || b.resolutionRate - a.resolutionRate)
+  }, [complaints])
+
+  const statCards = [
+    { key: 'total', label: 'Total', value: stats.total, color: 'var(--cyan)' },
+    { key: 'notSeen', label: 'Awaiting', value: stats.notSeen, color: 'var(--amber)' },
+    { key: 'underProcess', label: 'In Progress', value: stats.underProcess, color: 'var(--violet)' },
+    { key: 'resolved', label: 'Resolved', value: stats.resolved, color: 'var(--green)' },
+  ]
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] bg-slate-900 px-6 py-8 text-white shadow-xl sm:px-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">Admin route</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Complaint operations dashboard</h1>
-        <p className="mt-3 max-w-3xl text-base leading-7 text-slate-300">
-          Review incoming complaints, drill into complaint titles, and update them with remarks, resolution details, and proof images.
-        </p>
-      </section>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '18px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div className="section-label" style={{ marginBottom: 4 }}>Admin</div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", color: 'var(--text-primary)' }}>Operations Panel</h1>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Two-pane control for complaints and workers.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="btn-ghost"
+            style={{ fontSize: 12, padding: '8px 16px', flexShrink: 0 }}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { key: 'total', label: 'Total complaints raised', value: stats.total },
-          { key: 'underProcess', label: 'Under solving process', value: stats.underProcess },
-          { key: 'notSeen', label: 'Not seen yet', value: stats.notSeen },
-          { key: 'resolved', label: 'Resolved complaints', value: stats.resolved },
-        ].map((card) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
+        {statCards.map((card) => (
           <button
             key={card.key}
             type="button"
             onClick={() => setActiveFilter(card.key)}
-            className={[
-              'rounded-[28px] border p-5 text-left shadow-sm transition',
-              activeFilter === card.key
-                ? 'border-slate-900 bg-slate-900 text-white'
-                : 'border-stone-200 bg-white text-slate-900 hover:border-stone-300',
-            ].join(' ')}
+            style={{
+              background: activeFilter === card.key ? `${card.color}18` : 'var(--bg-card)',
+              border: `1px solid ${activeFilter === card.key ? card.color + '55' : 'var(--border)'}`,
+              borderRadius: 12, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s',
+            }}
           >
-            <p className="text-sm opacity-80">{card.label}</p>
-            <p className="mt-3 text-4xl font-semibold">{card.value}</p>
+            <div style={{ fontSize: 24, fontWeight: 800, color: card.color, fontFamily: "'Space Grotesk', sans-serif" }}>{card.value}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, fontWeight: 500 }}>{card.label}</div>
           </button>
         ))}
-      </section>
+      </div>
 
-      <section className="grid gap-8 xl:grid-cols-[0.72fr,1.28fr]">
-        <div className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-          <div className="flex items-center justify-between gap-3">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
+        <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 14, minHeight: 640 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Complaint titles</p>
-              <h2 className="mt-1 text-2xl font-semibold text-slate-900">
-                {FILTERS.find((filter) => filter.key === activeFilter)?.label}
-              </h2>
+              <div className="section-label" style={{ marginBottom: 4 }}>Pane 1</div>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Complaints</h2>
             </div>
-            <span className="rounded-full bg-stone-100 px-3 py-2 text-sm font-medium text-slate-600">
-              {filteredComplaints.length} items
-            </span>
+            <span style={{ fontSize: 11, background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '3px 10px', borderRadius: 999, fontWeight: 700 }}>{filtered.length}</span>
           </div>
 
-          <div className="mt-6 space-y-3">
-            {filteredComplaints.length ? (
-              filteredComplaints.map((complaint) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+            {FILTERS.map((filter) => (
+              <button
+                key={filter.key}
+                type="button"
+                onClick={() => setActiveFilter(filter.key)}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  border: `1px solid ${activeFilter === filter.key ? 'var(--cyan)' : 'var(--border)'}`,
+                  background: activeFilter === filter.key ? 'var(--cyan-dim)' : 'transparent',
+                  color: activeFilter === filter.key ? 'var(--cyan)' : 'var(--text-secondary)',
+                  padding: '8px 10px',
+                }}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto', marginBottom: 12 }}>
+            {filtered.length ? filtered.map((c) => {
+              const meta = STATUS_META[c.status]
+              const isSelected = selected?.id === c.id
+              return (
                 <button
-                  key={complaint.id}
+                  key={c.id}
                   type="button"
-                  onClick={() => setSelectedComplaintId(complaint.id)}
-                  className={[
-                    'w-full rounded-3xl border p-4 text-left transition',
-                    selectedComplaint?.id === complaint.id
-                      ? 'border-slate-900 bg-slate-900 text-white'
-                      : 'border-stone-200 bg-stone-50 text-slate-900 hover:border-stone-300',
-                  ].join(' ')}
+                  onClick={() => setSelectedId(c.id)}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 12px',
+                    borderRadius: 12, border: `1px solid ${isSelected ? 'var(--cyan)' : 'var(--border)'}`,
+                    background: isSelected ? 'var(--cyan-dim)' : 'transparent',
+                    textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s', width: '100%',
+                  }}
                 >
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-70">
-                    {complaint.complaintNumber}
-                  </p>
-                  <p className="mt-2 text-base font-semibold">{complaint.title}</p>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, flexShrink: 0, marginTop: 5, boxShadow: `0 0 6px ${meta.color}` }} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>{c.complaintNumber}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? 'var(--cyan)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.title}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{STATUS_META[c.status].shortLabel}</div>
+                  </div>
                 </button>
-              ))
-            ) : (
-              <div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-6 text-sm text-slate-500">
-                No complaints in this group right now.
-              </div>
+              )
+            }) : (
+              <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', border: '2px dashed var(--border)', borderRadius: 12 }}>No complaints here</div>
             )}
           </div>
-        </div>
 
-        <div className="space-y-6">
-          {selectedComplaint ? (
-            <div className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
-                    {selectedComplaint.complaintNumber}
-                  </p>
-                  <h2 className="mt-2 text-3xl font-semibold text-slate-900">{selectedComplaint.title}</h2>
+          {selected ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ background: 'rgba(56,189,248,0.03)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 4 }}>{selected.complaintNumber}</div>
+                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{selected.title}</h2>
+                    {selected.reporterName && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Reported by: {selected.reporterName}</div>
+                    )}
+                  </div>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    background: `${STATUS_META[selected.status].color}22`,
+                    border: `1px solid ${STATUS_META[selected.status].color}55`,
+                    color: STATUS_META[selected.status].color,
+                    borderRadius: 99, padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                  }}>
+                    {STATUS_META[selected.status].label}
+                  </span>
                 </div>
-                <span
-                  className="rounded-full px-4 py-2 text-sm font-semibold text-slate-900"
-                  style={{ backgroundColor: STATUS_META[selectedComplaint.status].color }}
-                >
-                  {STATUS_META[selectedComplaint.status].label}
-                </span>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                  {[
+                    { label: 'Category', value: formatCategory(selected.category, selected.otherCategory) },
+                    { label: 'Reported', value: formatDateTime(selected.createdAt) },
+                  ].map((item) => (
+                    <div key={item.label} style={{ background: 'rgba(56,189,248,0.04)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 3 }}>{item.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {selected.assignedAgent && (
+                  <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.2)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 6 }}>Current Agent</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{selected.assignedAgent.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{selected.assignedAgent.role} · {selected.assignedAgent.phone}</div>
+                  </div>
+                )}
+
+                {selected.imageUrl && (
+                  <img src={selected.imageUrl} alt={selected.title} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 14 }} />
+                )}
               </div>
-
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-3xl bg-stone-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Category</p>
-                  <p className="mt-2 text-base font-medium text-slate-900">
-                    {formatCategory(selectedComplaint.category, selectedComplaint.otherCategory)}
-                  </p>
-                </div>
-                <div className="rounded-3xl bg-stone-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Reported on</p>
-                  <p className="mt-2 text-base font-medium text-slate-900">
-                    {formatDateTime(selectedComplaint.createdAt)}
-                  </p>
-                </div>
-              </div>
-
-              <p className="mt-6 text-base leading-7 text-slate-700">{selectedComplaint.description}</p>
-
-              {selectedComplaint.imageUrl ? (
-                <img
-                  src={selectedComplaint.imageUrl}
-                  alt={selectedComplaint.title}
-                  className="mt-6 h-72 w-full rounded-[28px] object-cover"
-                />
-              ) : null}
+              <ActionForm key={selected.id} complaint={selected} onSave={updateComplaint} />
             </div>
-          ) : null}
+          ) : (
+            <div style={{ background: 'transparent', border: '1px dashed var(--border)', borderRadius: 12, padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+              Select a complaint to open its form
+            </div>
+          )}
+        </section>
 
-          {selectedComplaint ? (
-            <ComplaintActionForm
-              key={selectedComplaint.id}
-              complaint={selectedComplaint}
-              onSave={updateComplaint}
-            />
-          ) : null}
-        </div>
-      </section>
+        <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 14, minHeight: 640 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div className="section-label" style={{ marginBottom: 4 }}>Pane 2</div>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Workers</h2>
+          </div>
+
+          <div style={{ marginBottom: 12, border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr repeat(4, 1fr)', gap: 8, padding: '10px 12px', background: 'rgba(56,189,248,0.04)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>Worker</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'right' }}>Assigned</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'right' }}>Resolved</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'right' }}>Active</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'right' }}>Rate</div>
+            </div>
+            <div style={{ maxHeight: 270, overflowY: 'auto' }}>
+              {agentReport.length ? agentReport.map((agent) => (
+                <div key={agent.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr repeat(4, 1fr)', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{agent.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{agent.role}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', textAlign: 'right' }}>{agent.assigned}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', textAlign: 'right' }}>{agent.resolved}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', textAlign: 'right' }}>{agent.active}</div>
+                  <div style={{ fontSize: 12, color: 'var(--cyan)', fontWeight: 700, textAlign: 'right' }}>{agent.resolutionRate}%</div>
+                </div>
+              )) : (
+                <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>No worker activity yet</div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Department Reputation Score</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--text-muted)' }}>Avg resolution time, resolved ratio, reopened count</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+            {departmentScores.map((dept) => (
+              <div key={dept.department} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{dept.department}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--cyan)' }}>{dept.score}/100</div>
+                </div>
+                <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Avg: {dept.avgResolutionHours == null ? 'N/A' : `${dept.avgResolutionHours.toFixed(1)}h`}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>R/P: {dept.resolved}/{dept.pending}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reopen: {dept.reopened}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   )
+}
+
+function Admin() {
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem('admin_authed') === '1')
+
+  function handleLogin() {
+    sessionStorage.setItem('admin_authed', '1')
+    setAuthed(true)
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem('admin_authed')
+    setAuthed(false)
+  }
+
+  if (!authed) return <AdminLogin onLogin={handleLogin} />
+  return <AdminDashboard onLogout={handleLogout} />
 }
 
 export default Admin

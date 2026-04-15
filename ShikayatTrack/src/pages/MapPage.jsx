@@ -1,30 +1,78 @@
+import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import MapView from '../components/MapView.jsx'
 import { useComplaints } from '../context/ComplaintContext.jsx'
 import { STATUS_META } from '../lib/complaintUtils.js'
 
+const STATUS_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'reported', label: 'Reported' },
+  { key: 'assigned', label: 'Assigned' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'resolved', label: 'Resolved' },
+]
+
 function MapPage() {
   const { complaints } = useComplaints()
+  const [filter, setFilter] = useState('all')
+  const location = useLocation()
+
+  // Support ?lat=xx&lng=yy to highlight a specific location
+  const params = new URLSearchParams(location.search)
+  const highlightLat = parseFloat(params.get('lat'))
+  const highlightLng = parseFloat(params.get('lng'))
+  const highlightCoords = Number.isFinite(highlightLat) && Number.isFinite(highlightLng)
+    ? { lat: highlightLat, lng: highlightLng }
+    : null
+
+  const filtered = filter === 'all' ? complaints : complaints.filter((c) => c.status === filter)
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Suggested map name</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Civic Pulse Map</h1>
-        <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
-          A live complaint map showing every complaint pin and its current status. Resolved complaints display proof in the popup, matching what citizens see in tracking.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <div className="section-label" style={{ marginBottom: 6 }}>ShikayatTrack</div>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", color: 'var(--text-primary)' }}>Civic Pulse Map</h1>
+        <p style={{ margin: '8px 0 0', fontSize: 14, color: 'var(--text-secondary)' }}>
+          Real-time complaint map with AI-assigned agent info on each pin.
         </p>
-      </section>
+      </div>
 
-      <section className="flex flex-wrap gap-3">
-        {Object.entries(STATUS_META).map(([key, meta]) => (
-          <div key={key} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: meta.color }} />
-            {meta.label}
-          </div>
+      {highlightCoords && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 12 }}>
+          <span style={{ fontSize: 16 }}>📍</span>
+          <span style={{ fontSize: 13, color: '#f87171', fontWeight: 600 }}>
+            Showing photo location: {highlightCoords.lat.toFixed(5)}, {highlightCoords.lng.toFixed(5)}
+          </span>
+        </div>
+      )}
+
+      {/* Filter + legend */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setFilter(f.key)}
+            style={{
+              padding: '7px 16px', borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: filter === f.key ? `1px solid ${f.key === 'all' ? 'var(--cyan)' : STATUS_META[f.key]?.color ?? 'var(--cyan)'}` : '1px solid var(--border)',
+              background: filter === f.key ? (f.key === 'all' ? 'var(--cyan-dim)' : `${STATUS_META[f.key]?.color ?? 'var(--cyan)'}22`) : 'var(--bg-card)',
+              color: filter === f.key ? (f.key === 'all' ? 'var(--cyan)' : STATUS_META[f.key]?.color ?? 'var(--cyan)') : 'var(--text-muted)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {f.key !== 'all' && (
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: STATUS_META[f.key]?.color, marginRight: 6, boxShadow: `0 0 5px ${STATUS_META[f.key]?.color}` }} />
+            )}
+            {f.label}
+            <span style={{ marginLeft: 6, opacity: 0.7 }}>
+              ({f.key === 'all' ? complaints.length : complaints.filter((c) => c.status === f.key).length})
+            </span>
+          </button>
         ))}
-      </section>
+      </div>
 
-      <MapView complaints={complaints} heightClass="h-[620px]" />
+      <MapView complaints={filtered} highlightCoords={highlightCoords} />
     </div>
   )
 }
